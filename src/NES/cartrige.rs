@@ -1,9 +1,17 @@
+use crate::NES::BusDevice;
 
-pub struct CartMemRefs<'a>{
+pub struct CartMemRefsMut<'a>{
     prg_rom: &'a [u8], // program ROM
     chr_mem: &'a mut [u8], // character ROM/RAM
     prg_ram: &'a mut [u8], // program RAM
     nt_ram:  &'a mut [u8]  // CIRAM, emulated as if it was on the cartrige
+}
+
+pub struct CartMemRefs<'a>{
+    prg_rom: &'a [u8], // program ROM
+    chr_mem: &'a [u8], // character ROM/RAM
+    prg_ram: &'a [u8], // program RAM
+    nt_ram:  &'a [u8]  // CIRAM, emulated as if it was on the cartrige
 }
 
 pub enum NametableMirroring {
@@ -14,57 +22,56 @@ pub enum NametableMirroring {
     SingleScreenLower
 }
 
-pub enum MapperChip {
-   NROM 
+pub trait Mapper {
+    fn abus_read(&self, addr: u16, refs: CartMemRefs) -> u8;
+    fn abus_write(&mut self, addr: u16, val: u8, refs: CartMemRefsMut);
+    fn bbus_read(&self, addr: u16, refs: CartMemRefs) -> u8;
+    fn bbus_write(&mut self, addr: u16, val: u8, refs: CartMemRefsMut);
+    fn mapper_name(&self) -> String;
 }
 
-pub struct Mapper {
-    pub chip: MapperChip,
+pub struct NromMapper {
     pub mirroring: NametableMirroring
 }
 
-impl Mapper {
-    pub fn new(mapper_num: u8, nt_mirroring_vertical: bool, nt_mirroring_alt: bool) -> Option<Self> {
-        let chip = match mapper_num {
-            0 => Some(MapperChip::NROM),
-            _ => None
-        };
-
-        if chip.is_none() {
-            println!("ERROR! Bad or unsupported mapper(iNES mapper no. {mapper_num})");
-            return None;
-        }
-
+impl NromMapper{
+    pub fn new(nt_mirroring_vertical: bool, nt_mirroring_alt: bool) -> Option<Self> {
         let mirroring = 
             if nt_mirroring_alt { NametableMirroring::FourScreen} else {
                 if nt_mirroring_vertical { NametableMirroring:: Vertical} else { NametableMirroring::Horizontal }
             };
 
-        Some(Mapper{
-            chip: chip?,
+        Some(Self{
             mirroring: mirroring
         })
     }
+}
 
-    pub fn abus_read(&self, addr: u16, romset: &CartMemRefs) -> u8 {
+impl Mapper for NromMapper {
+    fn abus_read(&self, addr: u16, refs: CartMemRefs) -> u8 {
         0 // TODO: emulate mapper
     }
-    pub fn abus_write(&mut self, addr: u16, val: u8, romset: &mut CartMemRefs) {
+    fn abus_write(&mut self, addr: u16, val: u8, mut refs: CartMemRefsMut) {
         //TODO: emulate mapper
     }
 
-    pub fn bbus_read(&self, addr: u16, romset: &CartMemRefs) -> u8 {
+    fn bbus_read(&self, addr: u16, refs: CartMemRefs) -> u8 {
         0 // TODO: emulate mapper but as if CIRAM was on the cartrige
     }
 
-    pub fn bbus_write(&mut self, addr: u16, val: u8, romset: &mut CartMemRefs) {
+    fn bbus_write(&mut self, addr: u16, val: u8, mut refs: CartMemRefsMut) {
         // TODO: emulate mapper but as if CIRAM was on the cartrige
     }
+    
+    fn mapper_name(&self) -> String {
+        "NROM".to_string()
+    }
+}
 
-    pub fn stringify(&self) -> String {
-        match self.chip {
-            MapperChip::NROM => "NROM".to_string()
-        }
+fn new_mapper(mapper_num: u8,nt_mirroring_vertical: bool, nt_mirroring_alt: bool) -> Option<Box<dyn Mapper>> {
+    match mapper_num {
+        0 => Some(Box::new(NromMapper::new(nt_mirroring_vertical, nt_mirroring_alt)?)),
+        _ => None
     }
 }
 
@@ -73,7 +80,7 @@ pub struct Cartrige {
     pub prg_ram: Vec<u8>,
     pub chr_rom: Vec<u8>,
     pub nt_ram:  Vec<u8>,
-    pub mapper: Mapper,
+    pub mapper: Box<dyn Mapper>,
 }
 
 impl Cartrige {
@@ -94,7 +101,7 @@ impl Cartrige {
                 prgram_size = 8192;
             }
 
-            if let Some(mapper) = Mapper::new(mapper_num, nt_mirroring_vertical, nt_mirroring_alt) {
+            if let Some(mapper) = new_mapper(mapper_num, nt_mirroring_vertical, nt_mirroring_alt) {
                 let prg_start = 16 + trainer_size;
                 let prg_end = prg_start + prgrom_size;
 
@@ -121,6 +128,30 @@ impl Cartrige {
             }
         }
         None 
+    }
+}
+
+impl BusDevice for Cartrige {
+    fn abus_read(&self, addr: u16) -> u8{
+        self.mapper.abus_read(addr, CartMemRefs 
+            { prg_rom: &self.prg_rom, chr_mem: &self.chr_rom, prg_ram: &self.prg_ram, nt_ram: &self.nt_ram }
+        )
+    }
+    fn abus_write(&mut self, addr: u16, val: u8) {
+        self.mapper.abus_write(addr, val, CartMemRefsMut 
+            { prg_rom: &self.prg_rom, chr_mem: &mut self.chr_rom, prg_ram: &mut self.prg_ram, nt_ram: &mut self.nt_ram }
+        )
+    }
+    fn bbus_read(&self, addr: u16) -> u8 {
+        self.mapper.bbus_read(addr, CartMemRefs 
+            { prg_rom: &self.prg_rom, chr_mem: &self.chr_rom, prg_ram: &self.prg_ram, nt_ram: &self.nt_ram }
+        )
+        
+    }
+    fn bbus_write(&mut self, addr: u16, val: u8) {
+        self.mapper.bbus_write(addr, val, CartMemRefsMut 
+            { prg_rom: &self.prg_rom, chr_mem: &mut self.chr_rom, prg_ram: &mut self.prg_ram, nt_ram: &mut self.nt_ram }
+        )
     }
 }
 
