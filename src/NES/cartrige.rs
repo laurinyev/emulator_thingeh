@@ -50,10 +50,13 @@ impl NromMapper{
 impl Mapper for NromMapper {
     fn abus_read(&self, addr: u16, refs: CartMemRefs) -> u8 {
         if addr >= 0x6000 && addr <= 0x7FFF {
+            if refs.prg_ram.len() == 0 {
+                return 0;
+            }
             let realaddr = (addr - 0x6000) as usize % refs.prg_ram.len();
             return refs.prg_ram[realaddr];
         } else if addr >= 0x8000 && addr <= 0xBFFF {
-            let realaddr = (addr - 0x6000) as usize;
+            let realaddr = (addr - 0x8000) as usize;
 
             if realaddr <= refs.prg_rom.len() {
                 return refs.prg_rom[realaddr];
@@ -185,6 +188,12 @@ impl BusDevice for Cartrige {
             { prg_rom: &self.prg_rom, chr_mem: &mut self.chr_rom,
               prg_ram: &mut self.prg_ram, nt_ram: &mut self.nt_ram }
         )
+    }
+    fn bounds_abus(&self) -> (u16, u16) {
+        (0x4020,0xFFFF)
+    }
+    fn bounds_bbus(&self) -> (u16, u16) {
+        (0x0000,0x2FFF)
     }
 }
 

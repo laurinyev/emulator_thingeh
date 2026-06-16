@@ -12,6 +12,7 @@ mod tools;
 mod debugger;
 mod rom_info;
 mod main_win;
+mod mem_view;
 
 #[derive(Default)]
 pub struct UiState {
