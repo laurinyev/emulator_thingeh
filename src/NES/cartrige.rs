@@ -1,7 +1,7 @@
 use crate::NES::BusDevice;
 
 pub struct CartMemRefsMut<'a>{
-    prg_rom: &'a [u8], // program ROM
+    prg_rom: &'a     [u8], // program ROM
     chr_mem: &'a mut [u8], // character ROM/RAM
     prg_ram: &'a mut [u8], // program RAM
     nt_ram:  &'a mut [u8]  // CIRAM, emulated as if it was on the cartrige
@@ -49,19 +49,48 @@ impl NromMapper{
 
 impl Mapper for NromMapper {
     fn abus_read(&self, addr: u16, refs: CartMemRefs) -> u8 {
-        0 // TODO: emulate mapper
+        if addr >= 0x6000 && addr <= 0x7FFF {
+            let realaddr = (addr - 0x6000) as usize % refs.prg_ram.len();
+            return refs.prg_ram[realaddr];
+        } else if addr >= 0x8000 && addr <= 0xBFFF {
+            let realaddr = (addr - 0x6000) as usize;
+
+            if realaddr <= refs.prg_rom.len() {
+                return refs.prg_rom[realaddr];
+            } else {
+                return 0;
+            }
+        } else if addr >= 0xC000 {
+            let realaddr = ((addr - 0xC000) + 0x4000) as usize;
+
+            if realaddr <= refs.prg_rom.len() {
+                return refs.prg_rom[realaddr];
+            } else {
+                return 0;
+            }
+        } 
+        return 0;
     }
+
     fn abus_write(&mut self, addr: u16, val: u8, mut refs: CartMemRefsMut) {
-        //TODO: emulate mapper
-    }
+        if addr >= 0x6000 && addr <= 0x7FFF {
+            let realaddr = (addr - 0x6000) as usize % refs.prg_ram.len();
+            refs.prg_ram[realaddr] = val;
+        }
+    } 
 
     fn bbus_read(&self, addr: u16, refs: CartMemRefs) -> u8 {
-        0 // TODO: emulate mapper but as if CIRAM was on the cartrige
+        if addr <= 0x1FFF {
+            let realaddr = addr as usize;
+
+            return refs.chr_mem[realaddr];
+        }
+
+        return 0; // TODO: CIRAM 
     }
 
-    fn bbus_write(&mut self, addr: u16, val: u8, mut refs: CartMemRefsMut) {
-        // TODO: emulate mapper but as if CIRAM was on the cartrige
-    }
+    // NROM doesn't map anything writable on the bbus
+    fn bbus_write(&mut self, addr: u16, val: u8, mut refs: CartMemRefsMut) {} 
     
     fn mapper_name(&self) -> String {
         "NROM".to_string()
@@ -134,23 +163,27 @@ impl Cartrige {
 impl BusDevice for Cartrige {
     fn abus_read(&self, addr: u16) -> u8{
         self.mapper.abus_read(addr, CartMemRefs 
-            { prg_rom: &self.prg_rom, chr_mem: &self.chr_rom, prg_ram: &self.prg_ram, nt_ram: &self.nt_ram }
+            { prg_rom: &self.prg_rom, chr_mem: &self.chr_rom, 
+              prg_ram: &self.prg_ram, nt_ram: &self.nt_ram }
         )
     }
     fn abus_write(&mut self, addr: u16, val: u8) {
         self.mapper.abus_write(addr, val, CartMemRefsMut 
-            { prg_rom: &self.prg_rom, chr_mem: &mut self.chr_rom, prg_ram: &mut self.prg_ram, nt_ram: &mut self.nt_ram }
+            { prg_rom: &self.prg_rom, chr_mem: &mut self.chr_rom,
+              prg_ram: &mut self.prg_ram, nt_ram: &mut self.nt_ram }
         )
     }
     fn bbus_read(&self, addr: u16) -> u8 {
         self.mapper.bbus_read(addr, CartMemRefs 
-            { prg_rom: &self.prg_rom, chr_mem: &self.chr_rom, prg_ram: &self.prg_ram, nt_ram: &self.nt_ram }
+            { prg_rom: &self.prg_rom, chr_mem: &self.chr_rom, 
+              prg_ram: &self.prg_ram, nt_ram: &self.nt_ram }
         )
         
     }
     fn bbus_write(&mut self, addr: u16, val: u8) {
         self.mapper.bbus_write(addr, val, CartMemRefsMut 
-            { prg_rom: &self.prg_rom, chr_mem: &mut self.chr_rom, prg_ram: &mut self.prg_ram, nt_ram: &mut self.nt_ram }
+            { prg_rom: &self.prg_rom, chr_mem: &mut self.chr_rom,
+              prg_ram: &mut self.prg_ram, nt_ram: &mut self.nt_ram }
         )
     }
 }
