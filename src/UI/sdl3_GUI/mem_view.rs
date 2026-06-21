@@ -31,7 +31,4 @@ pub fn draw(ui: &Ui, state: &mut EmulatorState) {
             }
         }
     }
-    
-    
-
 }

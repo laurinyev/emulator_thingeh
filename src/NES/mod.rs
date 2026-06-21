@@ -2,8 +2,10 @@ use std::{any::Any, path::*};
 
 mod cartrige;
 mod cpu;
+mod ram;
 pub use cartrige::*;
 pub use cpu::*;
+pub use ram::*;
 
 pub trait BusDevice: Any {
     fn abus_read(&self, addr: u16) -> u8;
@@ -68,12 +70,21 @@ impl EmulState {
     pub fn init(rom: &[u8]) -> Option<Self> {
         let mut bus_devices = Vec::<Box<dyn BusDevice>>::new();
 
+        bus_devices.push(Box::new(RAM::new()));
         bus_devices.push(Box::new(Cartrige::load_rom(rom)?));
 
         Some(EmulState { 
             bus: DualBus::new(bus_devices),
             cpu: Cpu6502::new()
         })
-    } 
+    }
+
+    pub fn reset(&self) {
+        self.cpu.reset()
+    }
+
+    pub fn tick(&self) {
+        
+    }
 }
 
