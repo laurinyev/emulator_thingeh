@@ -55,21 +55,13 @@ impl Mapper for NromMapper {
             }
             let realaddr = (addr - 0x6000) as usize % refs.prg_ram.len();
             return refs.prg_ram[realaddr];
-        } else if addr >= 0x8000 && addr <= 0xBFFF {
+        } else if addr >= 0x8000 {
             let realaddr = (addr - 0x8000) as usize;
 
             if realaddr <= refs.prg_rom.len() {
                 return refs.prg_rom[realaddr];
             } else {
-                return 0;
-            }
-        } else if addr >= 0xC000 {
-            let realaddr = ((addr - 0xC000) + 0x4000) as usize;
-
-            if realaddr <= refs.prg_rom.len() {
-                return refs.prg_rom[realaddr];
-            } else {
-                return 0;
+                return refs.prg_rom[realaddr % refs.prg_rom.len()];
             }
         } 
         return 0;
