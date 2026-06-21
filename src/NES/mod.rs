@@ -79,7 +79,7 @@ impl EmulState {
         })
     }
 
-    pub fn reset(&self) {
+    pub fn reset(&mut self) {
         self.cpu.reset()
     }
 
