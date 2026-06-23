@@ -15,10 +15,10 @@ enum CpuEvent {
 // main CPU device struct
 pub struct Cpu6502 {
     pc: u16, // program counter
-    sp: u16, // stack pointer
-    a: u8,  // accumulator
-    x: u8,  // X register
-    y: u8,  // Y register
+    sp: u8,  // stack pointer
+    a: u8,   // accumulator
+    x: u8,   // X register
+    y: u8,   // Y register
     flags: u8,
 
     current_instr: &'static CpuInstruction, // currently fetched instruction
@@ -38,8 +38,8 @@ struct CpuInstruction {
 
 // HELPERS
 fn push(cpu: &mut Cpu6502, bus: &mut DualBus, val: u8) {
-    bus.abus_write(cpu.sp, val);
-    cpu.sp -= 1;
+    bus.abus_write(0x0100 | cpu.sp as u16, val);
+    cpu.sp = cpu.sp.wrapping_sub(1);
 }
 
 //MICRO OPS
@@ -138,8 +138,8 @@ fn mop_push_pch(cpu: &mut Cpu6502, bus: &mut DualBus) {
 }
 
 fn mop_push_pcl(cpu: &mut Cpu6502, bus: &mut DualBus) {
-    let pch = (cpu.pc >> 8) as u8;
-    push(cpu,bus,pch); 
+    let pcl = cpu.pc as u8;
+    push(cpu,bus,pcl); 
 }
 
 fn mop_push_flags(cpu: &mut Cpu6502, bus: &mut DualBus) {
