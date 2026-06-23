@@ -27,7 +27,8 @@ pub struct Cpu6502 {
     cpu_event: CpuEvent,
 
     page_crossed: bool,
-    amode_val: u16
+    amode_addr: u16,
+    amode_val: u8
 }
 
 // a cycle accurate micro-op representation of an instruction
@@ -49,7 +50,7 @@ fn mop_nop(cpu: &mut Cpu6502, bus: &mut DualBus) {}
 fn mop_yeild(cpu: &mut Cpu6502, bus: &mut DualBus) {
     // always read opcode and increment the program counter
     let mut opcode = bus.abus_read(cpu.pc);
-    cpu.pc += 1;   
+    cpu.pc = cpu.pc.wrapping_add(1);   
 
     match cpu.cpu_event {
         CpuEvent::None => {
@@ -70,14 +71,67 @@ fn mop_yeild(cpu: &mut Cpu6502, bus: &mut DualBus) {
 }
 
 //addressing modes
+fn mop_amode_zpg(cpu: &mut Cpu6502, bus: &mut DualBus) {
+    cpu.amode_addr = bus.abus_read(cpu.pc) as u16;     
+    cpu.pc = cpu.pc.wrapping_add(1);   
+}
+
+fn mop_amode_add_x_zp(cpu: &mut Cpu6502, bus: &mut DualBus) {
+    cpu.amode_addr = cpu.amode_addr.wrapping_add(cpu.x.into()) & 0xFF;
+}
+
 fn mop_amode_rel(cpu: &mut Cpu6502, bus: &mut DualBus) {
     let mut rel = bus.abus_read(cpu.pc) as i8;
     cpu.pc = cpu.pc.wrapping_add(1);   
-    cpu.amode_val = (cpu.pc as i16).wrapping_add(rel as i16) as u16;
-    cpu.page_crossed = cpu.pc & 0xFF00 != cpu.amode_val & 0xFF00;
+    cpu.amode_addr = (cpu.pc as i16).wrapping_add(rel as i16) as u16;
+    cpu.page_crossed = cpu.pc & 0xFF00 != cpu.amode_addr & 0xFF00;
+}
+
+fn mop_amode_abs_loadh(cpu: &mut Cpu6502, bus: &mut DualBus) {
+    let mut h = bus.abus_read(cpu.pc) as u16;
+    if cpu.amode_addr > 0xFF {
+        cpu.page_crossed = true; // our higher byte won't be fucked up but we still need to apply
+                                 // the penalty
+    }
+    cpu.amode_addr = cpu.amode_addr.wrapping_add(h << 8); // in case an a,x or a,y produced a low
+                                                          // value higher than 0xFF
+    cpu.pc = cpu.pc.wrapping_add(1);   
+}
+
+fn mop_amode_abs_loadl(cpu: &mut Cpu6502, bus: &mut DualBus) {
+    let mut l = bus.abus_read(cpu.pc) as u16;
+    cpu.amode_addr = l;
+    cpu.pc = cpu.pc.wrapping_add(1);   
+}
+
+fn mop_amode_abs_loadl_add_x(cpu: &mut Cpu6502, bus: &mut DualBus) {
+    let mut l = bus.abus_read(cpu.pc) as u16;
+    cpu.amode_addr = l + cpu.x as u16; // wrapping_add not needed cuz it mathematically can NOT get
+                                       // that large
+    cpu.pc = cpu.pc.wrapping_add(1);   
+}
+
+fn mop_amode_abs_loadl_add_y(cpu: &mut Cpu6502, bus: &mut DualBus) {
+    let mut l = bus.abus_read(cpu.pc) as u16;
+    cpu.amode_addr = l + cpu.y as u16; // wrapping_add not needed cuz it mathematically can NOT get
+                                       // that large
+    cpu.pc = cpu.pc.wrapping_add(1);   
+}
+
+fn mop_amode_load_val(cpu: &mut Cpu6502, bus: &mut DualBus) {
+    cpu.amode_val = bus.abus_read(cpu.amode_addr);
 }
 
 // work-doing micro-ops
+fn mop_load_a_imm(cpu: &mut Cpu6502, bus: &mut DualBus) {
+    cpu.a = bus.abus_read(cpu.pc);     
+    cpu.pc = cpu.pc.wrapping_add(1);   
+}
+
+fn mop_load_a_mem(cpu: &mut Cpu6502, bus: &mut DualBus) {
+    cpu.a = bus.abus_read(cpu.amode_addr);
+}
+
 fn mop_push_pch(cpu: &mut Cpu6502, bus: &mut DualBus) {
     let pch = (cpu.pc >> 8) as u8;
     push(cpu,bus,pch); 
@@ -136,7 +190,7 @@ fn mop_branch(cpu: &mut Cpu6502, bus: &mut DualBus) {
     };
 
     if should_branch {
-        cpu.pc = cpu.amode_val; 
+        cpu.pc = cpu.amode_addr; 
     } else {
         mop_yeild(cpu, bus); // nullify this cycle 
     }
@@ -169,6 +223,40 @@ const INSTR_BXX_REL: CpuInstruction = CpuInstruction {
     cycles: [mop_amode_rel, mop_branch, mop_page_cross_penalty, mop_yeild, mop_yeild, mop_yeild, mop_yeild]
 };
 
+// loading instructions
+const INSTR_LDA_IMM: CpuInstruction = CpuInstruction {
+    cycles: [mop_load_a_imm, mop_yeild, mop_yeild, mop_yeild, mop_yeild, mop_yeild, mop_yeild]
+};
+
+const INSTR_LDA_ZPG: CpuInstruction = CpuInstruction {
+    cycles: [mop_amode_zpg, mop_load_a_mem, mop_yeild, mop_yeild, mop_yeild, mop_yeild, mop_yeild]
+};
+
+const INSTR_LDA_ZPX: CpuInstruction = CpuInstruction {
+    cycles: [mop_amode_zpg, mop_amode_add_x_zp, mop_load_a_mem, mop_yeild, mop_yeild, mop_yeild, mop_yeild]
+};
+
+const INSTR_LDA_ABS: CpuInstruction = CpuInstruction {
+    cycles: [mop_amode_abs_loadl, mop_amode_abs_loadh, mop_load_a_mem, mop_yeild, mop_yeild, mop_yeild, mop_yeild]
+};
+
+const INSTR_LDA_ABX: CpuInstruction = CpuInstruction {
+    cycles: [mop_amode_abs_loadl_add_x, mop_amode_abs_loadh, mop_load_a_mem, mop_page_cross_penalty, mop_yeild, mop_yeild, mop_yeild]
+};
+
+const INSTR_LDA_ABY: CpuInstruction = CpuInstruction {
+    cycles: [mop_amode_abs_loadl_add_y, mop_amode_abs_loadh, mop_load_a_mem, mop_page_cross_penalty, mop_yeild, mop_yeild, mop_yeild]
+};
+
+// TODO; not in the mood to figure these out today
+//const INSTR_LDA_IDX: CpuInstruction = CpuInstruction {
+//    cycles: [mop_yeild, mop_yeild, mop_yeild, mop_yeild, mop_yeild, mop_yeild, mop_yeild]
+//};
+
+//const INSTR_LDA_IDY: CpuInstruction = CpuInstruction {
+//    cycles: [mop_yeild, mop_yeild, mop_yeild, mop_yeild, mop_yeild, mop_yeild, mop_yeild]
+//};
+
 
 const INSTR_TABLE: [CpuInstruction; 256] = [
     INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, // 00 
@@ -191,10 +279,10 @@ const INSTR_TABLE: [CpuInstruction; 256] = [
     INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, // 88
     INSTR_BXX_REL, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, // 90
     INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, // 98
-    INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, // A0
-    INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, // A8
-    INSTR_BXX_REL, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, // B0
-    INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, // B8
+    INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_LDA_ZPG, INSTR_BRK_IMP, INSTR_BRK_IMP, // A0
+    INSTR_BRK_IMP, INSTR_LDA_IMM, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_LDA_ABS, INSTR_BRK_IMP, INSTR_BRK_IMP, // A8
+    INSTR_BXX_REL, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_LDA_ZPX, INSTR_BRK_IMP, INSTR_BRK_IMP, // B0
+    INSTR_BRK_IMP, INSTR_LDA_ABY, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_LDA_ABX, INSTR_BRK_IMP, INSTR_BRK_IMP, // B8
     INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, // C0
     INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, // C8
     INSTR_BXX_REL, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, INSTR_BRK_IMP, // D0
@@ -221,7 +309,8 @@ impl Cpu6502 {
             cpu_event: CpuEvent::Reset, // so it reads from the reset vector
         
             page_crossed: false,
-            amode_val: 0x0000
+            amode_addr: 0x0000,
+            amode_val: 0x00
         }
     }
 
